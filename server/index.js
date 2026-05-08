@@ -21,9 +21,10 @@ const app = express();
 const server = http.createServer(app);
 
 // Frontend URL
-const CLIENT_URL =
-  process.env.CLIENT_URL ||
-  'https://real-time-collaborative-kanban-boar-six.vercel.app';
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://real-time-collaborative-kanban-boar-six.vercel.app'
+];
 
 // Socket.IO setup
 const io = new Server(server, {
