@@ -29,7 +29,7 @@ const allowedOrigins = [
 // Socket.IO setup
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_URL,
+    origin: allowerOrigins,
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     credentials: true,
   },
@@ -43,7 +43,7 @@ app.use((req, res, next) => {
 
 // Middleware
 app.use(cors({
-  origin: CLIENT_URL,
+  origin: allowedOrigins,
   credentials: true,
 }));
 
