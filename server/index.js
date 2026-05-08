@@ -7,7 +7,7 @@ const path = require('path');
 
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/error');
-const socketHandler = require('./socket');
+const socketHandler = require('../socket');
 
 const authRoutes = require('./routes/auth');
 const boardRoutes = require('./routes/boards');

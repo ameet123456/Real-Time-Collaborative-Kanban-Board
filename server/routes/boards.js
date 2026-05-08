@@ -2,8 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   getBoards, createBoard, getBoard, updateBoard, deleteBoard, inviteMember, removeMember
-} = require('../controllers/boardController');
-const { protect } = require('../middleware/auth');
+} = require('../server/controllers/boardController');
+const { protect } = require('../server/middleware/auth');
 
 router.use(protect);
 
