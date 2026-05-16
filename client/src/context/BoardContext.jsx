@@ -36,37 +36,37 @@ export const BoardProvider = ({ children }) => {
   }, [activeBoard]);
 
   // ── Single Board ─────────────────────────────────────────
-const fetchBoard = useCallback(async (id) => {
-  setLoadingBoard(true);
-  try {
-    const { data } = await api.get(`/boards/${id}`);
-    setActiveBoard(data.board);
-    setLists(data.lists);
-    setTasks(data.tasks);
+  const fetchBoard = useCallback(async (id) => {
+    setLoadingBoard(true);
+    try {
+      const { data } = await api.get(`/boards/${id}`);
+      setActiveBoard(data.board);
+      setLists(data.lists);
+      setTasks(data.tasks);
 
-    // Retry joining socket room until socket is ready
-    const tryJoin = (attempts = 0) => {
-      const socket = getSocket();
-      if (!socket) {
-        if (attempts < 10) setTimeout(() => tryJoin(attempts + 1), 500);
-        return;
-      }
-      if (socket.connected) {
-        socket.emit('board:join', id);
-        console.log('✅ Emitted board:join for', id);
-      } else {
-        console.log('⏳ Socket not connected yet, waiting...');
-        socket.once('connect', () => {
+      // Retry joining socket room until socket is ready
+      const tryJoin = (attempts = 0) => {
+        const socket = getSocket();
+        if (!socket) {
+          if (attempts < 10) setTimeout(() => tryJoin(attempts + 1), 500);
+          return;
+        }
+        if (socket.connected) {
           socket.emit('board:join', id);
-          console.log('✅ Emitted board:join after connect for', id);
-        });
-      }
-    };
-    tryJoin();
+          console.log('✅ Emitted board:join for', id);
+        } else {
+          console.log('⏳ Socket not connected yet, waiting...');
+          socket.once('connect', () => {
+            socket.emit('board:join', id);
+            console.log('✅ Emitted board:join after connect for', id);
+          });
+        }
+      };
+      tryJoin();
 
-    return data;
-  } finally { setLoadingBoard(false); }
-}, []);
+      return data;
+    } finally { setLoadingBoard(false); }
+  }, []);
 
   const leaveBoard = useCallback((id) => {
     const socket = getSocket();
@@ -77,6 +77,7 @@ const fetchBoard = useCallback(async (id) => {
   // ── Lists ────────────────────────────────────────────────
   const createList = useCallback(async (title, boardId) => {
     const { data } = await api.post('/lists', { title, boardId });
+    // ✅ Don't add locally — socket 'list:created' handles it for everyone
     return data.list;
   }, []);
 
@@ -95,7 +96,7 @@ const fetchBoard = useCallback(async (id) => {
   // ── Tasks ────────────────────────────────────────────────
   const createTask = useCallback(async (payload) => {
     const { data } = await api.post('/tasks', payload);
-    setTasks((prev) => [...prev, data.task]);
+    // ✅ Don't add locally — socket 'task:created' handles it for everyone
     return data.task;
   }, []);
 
@@ -151,6 +152,7 @@ const fetchBoard = useCallback(async (id) => {
     const onConnect = () => {
       if (activeBoard?._id) {
         socket.emit('board:join', activeBoard._id);
+        console.log('🔄 Rejoined board room after reconnect:', activeBoard._id);
       }
     };
     socket.on('connect', onConnect);
@@ -174,7 +176,7 @@ const fetchBoard = useCallback(async (id) => {
       socket.off('connect', onConnect);
       cleanups.forEach((c) => c());
     };
-  }, [user, activeBoard?._id]); // ← key fix: re-runs when board changes
+  }, [user, activeBoard?._id]);
 
   return (
     <BoardContext.Provider value={{
