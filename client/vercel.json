@@ -1,5 +1,8 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "https://real-time-collaborative-kanban-board-production.up.railway.app/api/:path*"
+    }
   ]
 }
