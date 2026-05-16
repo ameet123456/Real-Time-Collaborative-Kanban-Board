@@ -36,25 +36,37 @@ export const BoardProvider = ({ children }) => {
   }, [activeBoard]);
 
   // ── Single Board ─────────────────────────────────────────
-  const fetchBoard = useCallback(async (id) => {
-    setLoadingBoard(true);
-    try {
-      const { data } = await api.get(`/boards/${id}`);
-      setActiveBoard(data.board);
-      setLists(data.lists);
-      setTasks(data.tasks);
+const fetchBoard = useCallback(async (id) => {
+  setLoadingBoard(true);
+  try {
+    const { data } = await api.get(`/boards/${id}`);
+    setActiveBoard(data.board);
+    setLists(data.lists);
+    setTasks(data.tasks);
 
-      // Join socket room — wait for connection if needed
+    // Retry joining socket room until socket is ready
+    const tryJoin = (attempts = 0) => {
       const socket = getSocket();
-      if (socket?.connected) {
-        socket.emit('board:join', id);
-      } else if (socket) {
-        socket.once('connect', () => socket.emit('board:join', id));
+      if (!socket) {
+        if (attempts < 10) setTimeout(() => tryJoin(attempts + 1), 500);
+        return;
       }
+      if (socket.connected) {
+        socket.emit('board:join', id);
+        console.log('✅ Emitted board:join for', id);
+      } else {
+        console.log('⏳ Socket not connected yet, waiting...');
+        socket.once('connect', () => {
+          socket.emit('board:join', id);
+          console.log('✅ Emitted board:join after connect for', id);
+        });
+      }
+    };
+    tryJoin();
 
-      return data;
-    } finally { setLoadingBoard(false); }
-  }, []);
+    return data;
+  } finally { setLoadingBoard(false); }
+}, []);
 
   const leaveBoard = useCallback((id) => {
     const socket = getSocket();
