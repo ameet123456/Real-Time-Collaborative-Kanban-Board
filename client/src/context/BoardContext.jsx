@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import api from '../utils/api';
 import { getSocket } from '../utils/socket';
 import { useAuth } from './AuthContext';
@@ -13,6 +13,7 @@ export const BoardProvider = ({ children }) => {
   const [tasks, setTasks]             = useState([]);
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [loadingBoard,  setLoadingBoard]  = useState(false);
+  const listenersAttached = useRef(false); // ← prevents duplicate listeners
 
   // ── Boards ──────────────────────────────────────────────
   const fetchBoards = useCallback(async () => {
@@ -44,7 +45,6 @@ export const BoardProvider = ({ children }) => {
       setLists(data.lists);
       setTasks(data.tasks);
 
-      // Retry joining socket room until socket is ready
       const tryJoin = (attempts = 0) => {
         const socket = getSocket();
         if (!socket) {
@@ -55,7 +55,6 @@ export const BoardProvider = ({ children }) => {
           socket.emit('board:join', id);
           console.log('✅ Emitted board:join for', id);
         } else {
-          console.log('⏳ Socket not connected yet, waiting...');
           socket.once('connect', () => {
             socket.emit('board:join', id);
             console.log('✅ Emitted board:join after connect for', id);
@@ -77,7 +76,6 @@ export const BoardProvider = ({ children }) => {
   // ── Lists ────────────────────────────────────────────────
   const createList = useCallback(async (title, boardId) => {
     const { data } = await api.post('/lists', { title, boardId });
-    // ✅ Don't add locally — socket 'list:created' handles it for everyone
     return data.list;
   }, []);
 
@@ -96,7 +94,6 @@ export const BoardProvider = ({ children }) => {
   // ── Tasks ────────────────────────────────────────────────
   const createTask = useCallback(async (payload) => {
     const { data } = await api.post('/tasks', payload);
-    // ✅ Don't add locally — socket 'task:created' handles it for everyone
     return data.task;
   }, []);
 
@@ -117,7 +114,6 @@ export const BoardProvider = ({ children }) => {
     return data.task;
   }, []);
 
-  // Optimistic local move (for drag-drop feel)
   const moveTaskLocal = useCallback((taskId, sourceListId, destListId, sourceIdx, destIdx) => {
     setTasks((prev) => {
       const updated = [...prev];
@@ -146,37 +142,43 @@ export const BoardProvider = ({ children }) => {
   // ── Socket real-time listeners ───────────────────────────
   useEffect(() => {
     const socket = getSocket();
-    if (!socket) return;
+    if (!socket || listenersAttached.current) return; // ← skip if already attached
 
-    // Re-join board room on reconnect
+    listenersAttached.current = true; // ← mark as attached
+
     const onConnect = () => {
       if (activeBoard?._id) {
         socket.emit('board:join', activeBoard._id);
-        console.log('🔄 Rejoined board room after reconnect:', activeBoard._id);
       }
     };
     socket.on('connect', onConnect);
 
-    const on = (ev, fn) => { socket.on(ev, fn); return () => socket.off(ev, fn); };
-
-    const cleanups = [
-      on('list:created',       (l)        => setLists((p) => p.some((x) => x._id === l._id) ? p : [...p, l])),
-      on('list:updated',       (l)        => setLists((p) => p.map((x) => x._id === l._id ? l : x))),
-      on('list:deleted',       ({listId}) => { setLists((p) => p.filter((x) => x._id !== listId)); setTasks((p) => p.filter((t) => t.list !== listId)); }),
-      on('task:created',       (t)        => setTasks((p) => p.some((x) => x._id === t._id) ? p : [...p, t])),
-      on('task:updated',       (t)        => setTasks((p) => p.map((x) => x._id === t._id ? t : x))),
-      on('task:moved',         (t)        => setTasks((p) => p.map((x) => x._id === t._id ? t : x))),
-      on('task:deleted',       ({taskId}) => setTasks((p) => p.filter((x) => x._id !== taskId))),
-      on('board:updated',      (b)        => setActiveBoard(b)),
-      on('board:memberAdded',  ({board})  => setActiveBoard(board)),
-      on('board:memberRemoved',({board})  => setActiveBoard(board)),
-    ];
+    socket.on('list:created',        (l)        => setLists((p) => p.some((x) => x._id === l._id) ? p : [...p, l]));
+    socket.on('list:updated',        (l)        => setLists((p) => p.map((x) => x._id === l._id ? l : x)));
+    socket.on('list:deleted',        ({listId}) => { setLists((p) => p.filter((x) => x._id !== listId)); setTasks((p) => p.filter((t) => t.list !== listId)); });
+    socket.on('task:created',        (t)        => setTasks((p) => p.some((x) => x._id === t._id) ? p : [...p, t]));
+    socket.on('task:updated',        (t)        => setTasks((p) => p.map((x) => x._id === t._id ? t : x)));
+    socket.on('task:moved',          (t)        => setTasks((p) => p.map((x) => x._id === t._id ? t : x)));
+    socket.on('task:deleted',        ({taskId}) => setTasks((p) => p.filter((x) => x._id !== taskId)));
+    socket.on('board:updated',       (b)        => setActiveBoard(b));
+    socket.on('board:memberAdded',   ({board})  => setActiveBoard(board));
+    socket.on('board:memberRemoved', ({board})  => setActiveBoard(board));
 
     return () => {
+      listenersAttached.current = false; // ← reset on unmount
       socket.off('connect', onConnect);
-      cleanups.forEach((c) => c());
+      socket.off('list:created');
+      socket.off('list:updated');
+      socket.off('list:deleted');
+      socket.off('task:created');
+      socket.off('task:updated');
+      socket.off('task:moved');
+      socket.off('task:deleted');
+      socket.off('board:updated');
+      socket.off('board:memberAdded');
+      socket.off('board:memberRemoved');
     };
-  }, [user, activeBoard?._id]);
+  }, [user]); // ← only [user], not activeBoard._id
 
   return (
     <BoardContext.Provider value={{
