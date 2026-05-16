@@ -77,7 +77,6 @@ const fetchBoard = useCallback(async (id) => {
   // ── Lists ────────────────────────────────────────────────
   const createList = useCallback(async (title, boardId) => {
     const { data } = await api.post('/lists', { title, boardId });
-    setLists((prev) => [...prev, data.list]);
     return data.list;
   }, []);
 
