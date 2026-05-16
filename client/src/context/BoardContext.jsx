@@ -7,10 +7,10 @@ const BoardContext = createContext(null);
 
 export const BoardProvider = ({ children }) => {
   const { user } = useAuth();
-  const [boards, setBoards]         = useState([]);
+  const [boards, setBoards]           = useState([]);
   const [activeBoard, setActiveBoard] = useState(null);
-  const [lists, setLists]           = useState([]);
-  const [tasks, setTasks]           = useState([]);
+  const [lists, setLists]             = useState([]);
+  const [tasks, setTasks]             = useState([]);
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [loadingBoard,  setLoadingBoard]  = useState(false);
 
@@ -44,9 +44,13 @@ export const BoardProvider = ({ children }) => {
       setLists(data.lists);
       setTasks(data.tasks);
 
-      // Join socket room
+      // Join socket room — wait for connection if needed
       const socket = getSocket();
-      if (socket) socket.emit('board:join', id);
+      if (socket?.connected) {
+        socket.emit('board:join', id);
+      } else if (socket) {
+        socket.once('connect', () => socket.emit('board:join', id));
+      }
 
       return data;
     } finally { setLoadingBoard(false); }
@@ -132,23 +136,34 @@ export const BoardProvider = ({ children }) => {
     const socket = getSocket();
     if (!socket) return;
 
+    // Re-join board room on reconnect
+    const onConnect = () => {
+      if (activeBoard?._id) {
+        socket.emit('board:join', activeBoard._id);
+      }
+    };
+    socket.on('connect', onConnect);
+
     const on = (ev, fn) => { socket.on(ev, fn); return () => socket.off(ev, fn); };
 
     const cleanups = [
-      on('list:created',      (l)   => setLists((p) => p.some((x) => x._id === l._id) ? p : [...p, l])),
-      on('list:updated',      (l)   => setLists((p) => p.map((x) => x._id === l._id ? l : x))),
-      on('list:deleted',      ({listId}) => { setLists((p) => p.filter((x) => x._id !== listId)); setTasks((p) => p.filter((t) => t.list !== listId)); }),
-      on('task:created',      (t)   => setTasks((p) => p.some((x) => x._id === t._id) ? p : [...p, t])),
-      on('task:updated',      (t)   => setTasks((p) => p.map((x) => x._id === t._id ? t : x))),
-      on('task:moved',        (t)   => setTasks((p) => p.map((x) => x._id === t._id ? t : x))),
-      on('task:deleted',      ({taskId}) => setTasks((p) => p.filter((x) => x._id !== taskId))),
-      on('board:updated',     (b)   => setActiveBoard(b)),
-      on('board:memberAdded', ({board}) => setActiveBoard(board)),
-      on('board:memberRemoved',({board}) => setActiveBoard(board)),
+      on('list:created',       (l)        => setLists((p) => p.some((x) => x._id === l._id) ? p : [...p, l])),
+      on('list:updated',       (l)        => setLists((p) => p.map((x) => x._id === l._id ? l : x))),
+      on('list:deleted',       ({listId}) => { setLists((p) => p.filter((x) => x._id !== listId)); setTasks((p) => p.filter((t) => t.list !== listId)); }),
+      on('task:created',       (t)        => setTasks((p) => p.some((x) => x._id === t._id) ? p : [...p, t])),
+      on('task:updated',       (t)        => setTasks((p) => p.map((x) => x._id === t._id ? t : x))),
+      on('task:moved',         (t)        => setTasks((p) => p.map((x) => x._id === t._id ? t : x))),
+      on('task:deleted',       ({taskId}) => setTasks((p) => p.filter((x) => x._id !== taskId))),
+      on('board:updated',      (b)        => setActiveBoard(b)),
+      on('board:memberAdded',  ({board})  => setActiveBoard(board)),
+      on('board:memberRemoved',({board})  => setActiveBoard(board)),
     ];
 
-    return () => cleanups.forEach((c) => c());
-  }, [user]);
+    return () => {
+      socket.off('connect', onConnect);
+      cleanups.forEach((c) => c());
+    };
+  }, [user, activeBoard?._id]); // ← key fix: re-runs when board changes
 
   return (
     <BoardContext.Provider value={{
